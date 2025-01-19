@@ -1,168 +1,96 @@
 <template>
-  <section :class="{ 'is-full-height-scrollable': scrollable }">
-    <header v-if="$slots.header">
+  <section :class="{ 'h-screen min-h-0': scrollable }" class="flex flex-col">
+    <header
+      v-if="$slots.header"
+      class="border-base-content/10 bg-base-200 sticky top-[55px] z-2 border-b py-2 shadow-[1px_1px_2px_0_rgb(0,0,0,0.05)] md:top-0"
+    >
       <slot name="header"></slot>
     </header>
-    <main :data-scrolling="scrollable ? true : undefined">
-      <div class="is-scrollbar-progress is-hidden-mobile">
-        <scroll-progress v-show="paused" :indeterminate="loading" :auto-hide="!loading"></scroll-progress>
+    <main :data-scrolling="scrollable ? true : undefined" class="snap-y overflow-auto">
+      <div class="invisible relative md:visible" v-show="scrollContext.paused">
+        <div class="absolute top-4 right-44">
+          <ScrollProgress
+            :indeterminate="loadingMore"
+            :auto-hide="!loadingMore"
+            :progress="scrollContext.progress"
+            :date="scrollContext.currentDate"
+            class="fixed! z-10 min-w-40"
+          />
+        </div>
       </div>
       <div ref="scrollableContent">
-        <slot :setLoading="setLoading"></slot>
+        <slot></slot>
       </div>
 
-      <div ref="scrollObserver" class="is-scroll-observer"></div>
+      <div ref="scrollObserver" class="h-px"></div>
     </main>
 
-    <div class="is-scrollbar-notification">
+    <div class="mr-16 text-right">
       <transition name="fade">
-        <button class="button" :class="hasMore ? 'has-more' : ''" @click="scrollToBottom('instant')" v-show="paused">
-          <mdi-light-chevron-double-down />
+        <button
+          class="transition-colorsblur-xs dark btn btn-primary text-primary-content fixed bottom-8 rounded-sm p-3 shadow-sm"
+          :class="hasMore ? 'btn-secondary animate-bounce-fast text-secondary-content' : ''"
+          @click="scrollToBottom()"
+          v-show="scrollContext.paused"
+        >
+          <mdi:chevron-double-down />
         </button>
       </transition>
     </div>
   </section>
 </template>
 
-<script lang="ts">
-export default {
-  props: {
-    scrollable: {
-      type: Boolean,
-      default: true,
-    },
-  },
+<script lang="ts" setup>
+const { scrollable = false } = defineProps<{ scrollable?: boolean }>();
 
-  name: "ScrollableView",
-  data() {
-    return {
-      paused: false,
-      hasMore: false,
-      loading: false,
-      mutationObserver: null,
-      intersectionObserver: null,
-    };
-  },
-  mounted() {
-    const { scrollableContent } = this.$refs;
-    this.mutationObserver = new MutationObserver((e) => {
-      if (!this.paused) {
-        this.scrollToBottom("instant");
-      } else {
-        const record = e[e.length - 1];
-        if (
-          record.target.children[record.target.children.length - 1] == record.addedNodes[record.addedNodes.length - 1]
-        ) {
-          this.hasMore = true;
-        }
+const hasMore = ref(false);
+const scrollObserver = ref<HTMLElement>();
+const scrollableContent = ref<HTMLElement>();
+
+const scrollContext = provideScrollContext();
+
+const { loadingMore } = useLoggingContext();
+
+useIntersectionObserver(scrollObserver, ([entry]) => (scrollContext.paused = entry.intersectionRatio == 0), {
+  threshold: [0, 1],
+  rootMargin: "40px 0px",
+});
+
+useMutationObserver(
+  scrollableContent,
+  (records) => {
+    if (!scrollContext.paused) {
+      scrollToBottom();
+    } else {
+      const record = records[records.length - 1];
+      const children = (record.target as HTMLElement).children;
+      if (children[children.length - 1] == record.addedNodes[record.addedNodes.length - 1]) {
+        hasMore.value = true;
       }
-    });
-    this.mutationObserver.observe(scrollableContent, { childList: true, subtree: true });
+    }
+  },
+  { childList: true, subtree: true },
+);
 
-    this.intersectionObserver = new IntersectionObserver(
-      (entries) => (this.paused = entries[0].intersectionRatio == 0),
-      { threshholds: [0, 1], rootMargin: "80px 0px" }
-    );
-    this.intersectionObserver.observe(this.$refs.scrollObserver);
-  },
-  beforeUnmount() {
-    this.mutationObserver.disconnect();
-    this.intersectionObserver.disconnect();
-  },
-  methods: {
-    scrollToBottom(behavior = "instant") {
-      this.$refs.scrollObserver.scrollIntoView({ behavior });
-      this.hasMore = false;
-    },
-    setLoading(loading) {
-      this.loading = loading;
-    },
-  },
-};
+function scrollToBottom(behavior: "auto" | "smooth" = "auto") {
+  scrollObserver.value?.scrollIntoView({ behavior });
+  hasMore.value = false;
+}
 </script>
-<style scoped lang="scss">
-section {
-  display: flex;
-  flex-direction: column;
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  @apply transition-opacity;
+}
 
-  header {
-    position: sticky;
-    top: 0;
-    background: var(--body-background-color);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    z-index: 1;
-  }
+.fade-enter-from,
+.fade-leave-to {
+  @apply opacity-0;
+}
+</style>
 
-  &.is-full-height-scrollable {
-    height: 100vh;
-    min-height: 0;
-  }
-
-  main {
-    flex: 1;
-    overflow: auto;
-    scroll-snap-type: y proximity;
-  }
-
-  .is-scrollbar-progress {
-    text-align: right;
-    margin-right: 110px;
-    .scroll-progress {
-      position: fixed;
-      top: 60px;
-      z-index: 2;
-    }
-  }
-
-  .is-scroll-observer {
-    height: 1px;
-  }
-
-  .is-scrollbar-notification {
-    text-align: right;
-    margin-right: 65px;
-    button {
-      position: fixed;
-      bottom: 30px;
-      background-color: var(--secondary-color);
-      transition: background-color 1s ease-out;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
-      border: none !important;
-      color: #222;
-
-      &.has-more {
-        background-color: var(--primary-color);
-        animation-name: bounce;
-        animation-duration: 1000ms;
-        animation-fill-mode: both;
-        color: #fff;
-      }
-    }
-  }
-
-  @keyframes bounce {
-    0%,
-    20%,
-    50%,
-    80%,
-    100% {
-      transform: translateY(0);
-    }
-    40% {
-      transform: translateY(-30px);
-    }
-    60% {
-      transform: translateY(-15px);
-    }
-  }
-
-  .fade-enter-active,
-  .fade-leave-active {
-    transition: opacity 0.15s ease-in;
-  }
-  .fade-enter,
-  .fade-leave-to {
-    opacity: 0;
-  }
+<style>
+.splitpanes__pane {
+  overflow: unset !important;
 }
 </style>
